@@ -3,7 +3,7 @@ package main
 import "base:runtime"
 import "constants"
 import "core:c"
-import "envelopes"
+import "core:sync"
 import rl "vendor:raylib"
 import "waveforms"
 
@@ -34,7 +34,6 @@ main :: proc() {
 		rl.GuiSliderBar(rl.Rectangle{383, 20, 40, 467}, "Volume", "", &global_volume, 0.0, 2.0)
 
 		waveforms.pulse_draw_gui()
-		envelopes.envelope_draw_gui()
 
 		rl.EndDrawing()
 	}
@@ -45,8 +44,9 @@ audio_generate :: proc "c" (data: rawptr, frames: c.uint) {
 	samples := transmute([^]f32)data
 	if global_volume != 0.0 {
 		for i in 0 ..< frames {
-			phase += constants.FREQUENCY / constants.SAMPLE_RATE
+			phase += sync.atomic_load(&waveforms.pulse_pitch) / constants.SAMPLE_RATE
 			if phase >= 1 do phase -= 1
+
 			samples[i] = waveforms.pulse_generate(phase) * global_volume
 		}
 	} else {
