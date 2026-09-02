@@ -2,6 +2,7 @@ package main
 
 import "core:c"
 import rl "vendor:raylib"
+import "waveforms"
 
 phase: f32 = 0.0
 global_volume: f32 = 1.0
@@ -29,7 +30,7 @@ main :: proc() {
 
 		rl.GuiSliderBar(rl.Rectangle{383, 20, 40, 467}, "Volume", "", &global_volume, 0.0, 2.0)
 
-		pulse_draw_gui()
+		waveforms.pulse_draw_gui()
 
 		rl.EndDrawing()
 	}
@@ -41,7 +42,7 @@ audio_generate :: proc "c" (data: rawptr, frames: c.uint) {
 		if global_volume != 0 {
 			phase += FREQUENCY / SAMPLE_RATE
 			if phase >= 1 do phase -= 1
-			samples[i] = pulse_generate() * global_volume // will need mixing later when I do different waveforms
+			samples[i] = waveforms.pulse_generate(phase) * global_volume // will need mixing later when I do different waveforms
 		} else {
 			phase = 0
 		}

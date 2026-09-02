@@ -1,4 +1,4 @@
-package main
+package waveforms
 
 import "core:sync"
 import rl "vendor:raylib"
@@ -7,7 +7,7 @@ pulse_active := false
 pulse_volume: f32 = 0.3
 pulse_duty_cycle: f32 = 0.5
 
-pulse_generate :: proc "c" () -> f32 {
+pulse_generate :: proc "c" (phase: f32) -> f32 {
 	if sync.atomic_load(&pulse_active) {
 		return (phase < pulse_duty_cycle ? 1 : -1) * pulse_volume
 	} else {
