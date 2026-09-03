@@ -20,16 +20,49 @@ pulse_duty_cycle: f32 = 0.5
 pulse_pitch: f32 = 440.0
 
 @(private = "file")
+pulse_phase: f32 = 0.0
+
+@(private = "file")
 env: envelopes.Envelope
 
 @(private = "file")
-pulse_is_active :: proc() -> bool {
+get_active :: #force_inline proc() -> bool {
 	return sync.atomic_load(&pulse_active)
 }
 
-pulse_generate :: proc(phase: f32) -> f32 {
-	amp := envelopes.envelope_update(&env, pulse_is_active(), 1.0 / constants.SAMPLE_RATE)
-	return (phase < pulse_duty_cycle ? 1 : -1) * pulse_volume * amp
+@(private = "file")
+get_phase :: #force_inline proc() -> f32 {
+	return sync.atomic_load(&pulse_phase)
+}
+
+@(private = "file")
+advance_phase :: #force_inline proc() {
+	phase_new := get_phase() + get_pitch() / constants.SAMPLE_RATE
+	if phase_new >= 1 {
+		phase_new -= 1
+	}
+	sync.atomic_store(&pulse_phase, phase_new)
+
+}
+
+@(private = "file")
+get_volume :: #force_inline proc() -> f32 {
+	return sync.atomic_load(&pulse_volume)
+}
+
+@(private = "file")
+get_pitch :: #force_inline proc() -> f32 {
+	return sync.atomic_load(&pulse_pitch)
+}
+
+pulse_generate :: proc() -> f32 {
+	amp := envelopes.envelope_update(&env, get_active(), 1.0 / constants.SAMPLE_RATE)
+	if amp <= 0.0 {
+		return 0.0
+	}
+	advance_phase()
+
+	return (get_phase() < pulse_duty_cycle ? 1 : -1) * get_volume() * amp
 }
 
 pulse_draw_gui :: proc() {

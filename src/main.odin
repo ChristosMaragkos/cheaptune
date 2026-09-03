@@ -3,11 +3,10 @@ package main
 import "base:runtime"
 import "constants"
 import "core:c"
-import "core:sync"
+import "core:math"
 import rl "vendor:raylib"
 import "waveforms"
 
-phase: f32 = 0.0
 global_volume: f32 = 1.0
 
 main :: proc() {
@@ -25,6 +24,7 @@ main :: proc() {
 
 	rl.SetAudioStreamCallback(stream, audio_generate)
 	rl.PlayAudioStream(stream)
+	defer rl.StopAudioStream(stream)
 
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
@@ -34,6 +34,8 @@ main :: proc() {
 		rl.GuiSliderBar(rl.Rectangle{383, 20, 40, 467}, "Volume", "", &global_volume, 0.0, 2.0)
 
 		waveforms.pulse_draw_gui()
+		waveforms.sine_draw_gui()
+		waveforms.triangle_draw_gui()
 
 		rl.EndDrawing()
 	}
@@ -42,14 +44,19 @@ main :: proc() {
 audio_generate :: proc "c" (data: rawptr, frames: c.uint) {
 	context = runtime.default_context()
 	samples := transmute([^]f32)data
-	if global_volume != 0.0 {
-		for i in 0 ..< frames {
-			phase += sync.atomic_load(&waveforms.pulse_pitch) / constants.SAMPLE_RATE
-			if phase >= 1 do phase -= 1
+	for i in 0 ..< frames {
+		pulse := waveforms.pulse_generate()
+		sine := waveforms.sine_generate()
+		tri := waveforms.triangle_generate()
 
-			samples[i] = waveforms.pulse_generate(phase) * global_volume
-		}
-	} else {
-		phase = 0.0
+		voices := 0
+
+		if pulse != 0 do voices += 1
+		if sine != 0 do voices += 1
+		if tri != 0 do voices += 1
+
+		mix := (pulse + sine + tri) / math.sqrt(f32(math.max(voices, 1)))
+
+		samples[i] = mix * global_volume
 	}
 }
