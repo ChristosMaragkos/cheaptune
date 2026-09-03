@@ -36,6 +36,8 @@ main :: proc() {
 		waveforms.pulse_draw_gui()
 		waveforms.sine_draw_gui()
 		waveforms.triangle_draw_gui()
+		waveforms.noise_draw_gui()
+		waveforms.saw_draw_gui()
 
 		rl.EndDrawing()
 	}
@@ -48,14 +50,18 @@ audio_generate :: proc "c" (data: rawptr, frames: c.uint) {
 		pulse := waveforms.pulse_generate()
 		sine := waveforms.sine_generate()
 		tri := waveforms.triangle_generate()
+		noise := waveforms.noise_generate()
+		saw := waveforms.saw_generate()
 
 		voices := 0
 
 		if pulse != 0 do voices += 1
 		if sine != 0 do voices += 1
 		if tri != 0 do voices += 1
+		if noise != 0 do voices += 1
+		if saw != 0 do voices += 1
 
-		mix := (pulse + sine + tri) / math.sqrt(f32(math.max(voices, 1)))
+		mix := (pulse + sine + tri + noise + saw) / math.sqrt(f32(math.max(voices, 2)))
 
 		samples[i] = mix * global_volume
 	}
