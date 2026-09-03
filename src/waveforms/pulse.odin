@@ -7,13 +7,22 @@ import rl "vendor:raylib"
 
 PULSE_GUI_HEIGHT :: 120
 
+@(private = "file")
 pulse_active := false
+
+@(private = "file")
 pulse_volume: f32 = 0.3
+
+@(private = "file")
 pulse_duty_cycle: f32 = 0.5
+
+@(private = "file")
 pulse_pitch: f32 = 440.0
 
+@(private = "file")
 env: envelopes.Envelope
 
+@(private = "file")
 pulse_is_active :: proc() -> bool {
 	return sync.atomic_load(&pulse_active)
 }
