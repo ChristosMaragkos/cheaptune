@@ -13,9 +13,11 @@ HEIGHT :: 512
 global_volume: f32 = 1.0
 
 main :: proc() {
+	rl.SetConfigFlags({.WINDOW_RESIZABLE})
 	rl.InitWindow(WIDTH, HEIGHT, "Cheaptune")
 	defer rl.CloseWindow()
 
+	rl.SetWindowMinSize(WIDTH, HEIGHT)
 	rl.SetWindowMonitor(0)
 	rl.SetTargetFPS(60)
 
@@ -31,8 +33,12 @@ main :: proc() {
 
 	waveforms.wavetable_init()
 
+	canvas := rl.LoadRenderTexture(WIDTH, HEIGHT)
+	defer rl.UnloadRenderTexture(canvas)
+
 	for !rl.WindowShouldClose() {
-		rl.BeginDrawing()
+		// Render the UI at the fixed design resolution (WIDTH x HEIGHT).
+		rl.BeginTextureMode(canvas)
 		rl.ClearBackground(rl.Color{15, 15, 15, 255})
 		rl.DrawRectangleLines(10, 15, 428, 477, rl.RAYWHITE)
 
@@ -44,6 +50,27 @@ main :: proc() {
 		waveforms.noise_draw_gui()
 		waveforms.saw_draw_gui()
 		waveforms.wavetable_draw_gui()
+
+		rl.EndTextureMode()
+
+		win_w := f32(rl.GetScreenWidth())
+		win_h := f32(rl.GetScreenHeight())
+		scale := min(win_w / WIDTH, win_h / HEIGHT)
+		dst_w := WIDTH * scale
+		dst_h := HEIGHT * scale
+		off_x := (win_w - dst_w) * 0.5
+		off_y := (win_h - dst_h) * 0.5
+		dest := rl.Rectangle{off_x, off_y, dst_w, dst_h}
+
+		sc := 1.0 / scale
+		rl.SetMouseScale(sc, sc)
+		rl.SetMouseOffset(i32(-off_x), i32(-off_y))
+
+		rl.BeginDrawing()
+		rl.ClearBackground(rl.BLACK)
+
+		src := rl.Rectangle{0, 0, f32(canvas.texture.width), -f32(canvas.texture.height)}
+		rl.DrawTexturePro(canvas.texture, src, dest, rl.Vector2{0, 0}, 0, rl.WHITE)
 
 		rl.EndDrawing()
 	}

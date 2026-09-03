@@ -219,7 +219,7 @@ wavetable_draw_gui :: proc() {
 	}
 	rl.GuiCheckBox({150, 420, 70, 15}, "Edit Hex", &hex_edit_active)
 
-	if rl.GuiButton({220, 420, 60, 20}, "Save") {
+	if rl.GuiButton({270, 420, 60, 20}, "Save") {
 		save_path := tfd.saveFileDialog(
 			"Save Wavetable Sample",
 			nil,
@@ -232,7 +232,7 @@ wavetable_draw_gui :: proc() {
 		if err != os.General_Error.None do fmt.printfln("Error saving wavetable sample to file")
 	}
 
-	if rl.GuiButton({290, 420, 60, 20}, "Load") {
+	if rl.GuiButton({340, 420, 60, 20}, "Load") {
 		load_path := tfd.openFileDialog(
 			"Load Wavetable Sample",
 			nil,
