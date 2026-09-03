@@ -30,13 +30,13 @@ wavetable_pitch: f32 = 440.0
 wavetable_phase: f32 = 0.0
 
 @(private = "file")
-data: [32]u8
+data: [WAVE_SAMPLE_COUNT]u8
 
 @(private = "file")
 env: envelopes.Envelope
 
 @(private = "file")
-hex_buffer: [WAVE_SAMPLE_COUNT + 1]u8
+hex_buffer: [WAVE_SAMPLE_COUNT * 2 + 1]u8
 
 @(private = "file")
 hex_edit_active := false
@@ -88,19 +88,19 @@ hex_to_nibble :: proc(ch: u8) -> (u8, bool) {
 	return 0, false
 }
 
-// Pack 64 nibbles (from the hex string) into the 32-byte data array.
-// Reads only up to the string's NUL terminator; any shorter string zero-fills the rest.
+// Parse the hex string (two chars per byte) into the data array.
+// Reads only up to the NUL terminator; any shorter string zero-fills the rest.
 @(private = "file")
 pack_data :: proc() {
-	len := 0
-	for len < WAVE_SAMPLE_COUNT && hex_buffer[len] != 0 {
-		len += 1
+	hex_len := 0
+	for hex_len < WAVE_SAMPLE_COUNT * 2 && hex_buffer[hex_len] != 0 {
+		hex_len += 1
 	}
-	for byte_idx in 0 ..< 32 {
-		lo_idx := byte_idx * 2 + 1
-		hi_idx := byte_idx * 2
-		lo_nib, ok_lo := hex_to_nibble(hex_buffer[lo_idx] if lo_idx < len else '0')
-		hi_nib, ok_hi := hex_to_nibble(hex_buffer[hi_idx] if hi_idx < len else '0')
+	for byte_idx in 0 ..< WAVE_SAMPLE_COUNT {
+		lo_ch := hex_buffer[byte_idx * 2 + 1] if byte_idx * 2 + 1 < hex_len else '0'
+		hi_ch := hex_buffer[byte_idx * 2] if byte_idx * 2 < hex_len else '0'
+		lo_nib, ok_lo := hex_to_nibble(lo_ch)
+		hi_nib, ok_hi := hex_to_nibble(hi_ch)
 		if !ok_lo do lo_nib = 0
 		if !ok_hi do hi_nib = 0
 		data[byte_idx] = (hi_nib << 4) | lo_nib
@@ -110,18 +110,18 @@ pack_data :: proc() {
 // Refresh the hex buffer from the current data array.
 @(private = "file")
 unpack_data :: proc() {
-	for byte_idx in 0 ..< 32 {
+	for byte_idx in 0 ..< WAVE_SAMPLE_COUNT {
 		b := data[byte_idx]
 		hex_buffer[byte_idx * 2] = nibble_to_hex((b >> 4) & 0xF)
 		hex_buffer[byte_idx * 2 + 1] = nibble_to_hex(b & 0xF)
 	}
-	hex_buffer[WAVE_SAMPLE_COUNT] = 0
+	hex_buffer[WAVE_SAMPLE_COUNT * 2] = 0
 }
 
-// Fill the table from a 64-char hex string, then sync the buffer.
+// Fill the table from a hex string, then sync the buffer.
 wavetable_load_hex :: proc(hex: string) {
 	empty_data()
-	copy(hex_buffer[:], hex[:min(len(hex), WAVE_SAMPLE_COUNT)])
+	copy(hex_buffer[:], hex[:min(len(hex), WAVE_SAMPLE_COUNT * 2)])
 	pack_data()
 	unpack_data()
 }
@@ -151,14 +151,8 @@ fill_preset :: proc(kind: Preset_Kind) {
 			case .Square:
 				var = p < 0.5 ? 1.0 : -1.0
 		}
-		nib := clamp(int((var + 1.0) * 0.5 * 15.0 + 0.5), 0, 15)
-		// store packed: even i -> high nibble, odd i -> low nibble
-		byte_idx := i >> 1
-		if i & 1 == 0 {
-			data[byte_idx] = (data[byte_idx] & 0x0F) | (u8(nib) << 4)
-		} else {
-			data[byte_idx] = (data[byte_idx] & 0xF0) | u8(nib)
-		}
+		byte := clamp(int((var + 1.0) * 0.5 * 255.0 + 0.5), 0, 255)
+		data[i] = u8(byte)
 	}
 	unpack_data()
 }
@@ -171,6 +165,14 @@ Preset_Kind :: enum {
 	Square,
 }
 
+// Read the sample at phase position [0,1) as an amplitude in [-1,1].
+@(private = "file")
+sample_at :: proc(phase: f32) -> f32 {
+	idx := int(phase * WAVE_SAMPLE_COUNT) & (WAVE_SAMPLE_COUNT - 1)
+	value := (f32(data[idx]) / 255.0) * 2.0 - 1.0
+	return value
+}
+
 wavetable_generate :: proc() -> f32 {
 	amp := envelopes.envelope_update(&env, get_active(), 1.0 / constants.SAMPLE_RATE)
 	if amp <= 0.0 {
@@ -178,18 +180,7 @@ wavetable_generate :: proc() -> f32 {
 	}
 	advance_phase()
 
-	idx := int(get_phase() * WAVE_SAMPLE_COUNT) & (WAVE_SAMPLE_COUNT - 1)
-	byte_idx := idx >> 1
-	b := data[byte_idx]
-	nib: u8
-	if idx & 1 == 0 {
-		nib = (b >> 4) & 0xF
-	} else {
-		nib = b & 0xF
-	}
-
-	value := (f32(nib) / 15.0) * 2.0 - 1.0 // Convert from 0..15 -> -1..1
-	return value * amp * get_volume()
+	return sample_at(get_phase()) * amp * get_volume()
 }
 
 wavetable_draw_gui :: proc() {
@@ -198,20 +189,37 @@ wavetable_draw_gui :: proc() {
 	rl.GuiSliderBar({150, 165, 60, 15}, "", "Attack", &env.attack_time, 0.0, 0.5)
 	rl.GuiSliderBar({150, 180, 60, 15}, "", "Release", &env.release_time, 0.0, 0.5)
 
-	rl.GuiTextBox({150, 200, 268, 20}, cstring(&hex_buffer[0]), WAVE_SAMPLE_COUNT + 1, hex_edit_active)
+	if rl.GuiButton({150, 200, 60, 20}, "Sine") {
+		fill_preset(.Sine)
+	}
+	if rl.GuiButton({214, 200, 60, 20}, "Triangle") {
+		fill_preset(.Triangle)
+	}
+	if rl.GuiButton({278, 200, 60, 20}, "Saw") {
+		fill_preset(.Saw)
+	}
+	if rl.GuiButton({342, 200, 60, 20}, "Square") {
+		fill_preset(.Square)
+	}
+
 	pack_data()
 
-	rl.GuiCheckBox({150, 225, 60, 15}, "Edit Hex", &hex_edit_active)
-	if rl.GuiButton({265, 225, 40, 15}, "Clear") { fill_preset(.Empty) }
+	rl.GuiSlider({150, 225, 60, 15}, "", "Pitch", &wavetable_pitch, 40.0, 4000.0)
 
-	if rl.GuiButton({150, 245, 60, 20}, "Sine") { fill_preset(.Sine) }
-	if rl.GuiButton({214, 245, 60, 20}, "Triangle") { fill_preset(.Triangle) }
-	if rl.GuiButton({278, 245, 60, 20}, "Saw") { fill_preset(.Saw) }
-	if rl.GuiButton({342, 245, 60, 20}, "Square") { fill_preset(.Square) }
+	draw_wave_preview({150, 250, 268, 110})
 
-	rl.GuiSlider({150, 270, 60, 15}, "", "Pitch", &wavetable_pitch, 40.0, 4000.0)
+	rl.GuiTextBox(
+		{150, 395, 228, 20},
+		cstring(&hex_buffer[0]),
+		WAVE_SAMPLE_COUNT * 2 + 1,
+		hex_edit_active,
+	)
+	if rl.GuiButton({390, 395, 28, 20}, "Clr") {
+		fill_preset(.Empty)
+	}
+	rl.GuiCheckBox({150, 420, 70, 15}, "Edit Hex", &hex_edit_active)
 
-	if rl.GuiButton({150, 420, 60, 20}, "Save") {
+	if rl.GuiButton({220, 420, 60, 20}, "Save") {
 		save_path := tfd.saveFileDialog(
 			"Save Wavetable Sample",
 			nil,
@@ -224,7 +232,7 @@ wavetable_draw_gui :: proc() {
 		if err != os.General_Error.None do fmt.printfln("Error saving wavetable sample to file")
 	}
 
-	if rl.GuiButton({220, 420, 60, 20}, "Load") {
+	if rl.GuiButton({290, 420, 60, 20}, "Load") {
 		load_path := tfd.openFileDialog(
 			"Load Wavetable Sample",
 			nil,
@@ -244,8 +252,6 @@ wavetable_draw_gui :: proc() {
 			unpack_data()
 		}
 	}
-
-	draw_wave_preview({150, 290, 268, 120})
 }
 
 @(private = "file")
@@ -258,22 +264,14 @@ draw_wave_preview :: proc(bounds: rl.Rectangle) {
 		rl.RAYWHITE,
 	)
 	prev := rl.Vector2{}
+	headroom := bounds.height * 0.05
 	for i in 0 ..= WAVE_SAMPLE_COUNT {
-		idx := i & (WAVE_SAMPLE_COUNT - 1)
-		byte_idx := idx >> 1
-		b := data[byte_idx]
-		nib: u8
-		if idx & 1 == 0 {
-			nib = (b >> 4) & 0xF
-		} else {
-			nib = b & 0xF
-		}
-		value := (f32(nib) / 15.0) * 2.0 - 1.0
+		value := sample_at(f32(i) / f32(WAVE_SAMPLE_COUNT))
 		x := bounds.x + f32(i) / f32(WAVE_SAMPLE_COUNT) * bounds.width
-		y := bounds.y + bounds.height * 0.5 - value * 0.5 * bounds.height
+		y := bounds.y + bounds.height * 0.5 - value * 0.5 * (bounds.height - 2 * headroom)
 		cur := rl.Vector2{x, y}
 		if i > 0 {
-			rl.DrawLineV(prev, cur, rl.RAYWHITE)
+			rl.DrawLineV(prev, cur, rl.GREEN)
 		}
 		prev = cur
 	}
