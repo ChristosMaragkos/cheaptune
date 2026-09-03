@@ -5,7 +5,7 @@ import "../envelopes"
 import "core:sync"
 import rl "vendor:raylib"
 
-SAW_GUI_HEIGHT :: 300
+SAW_GUI_HEIGHT :: 105
 
 @(private = "file")
 saw_active := false
