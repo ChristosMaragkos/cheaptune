@@ -12,7 +12,7 @@ TRIANGLE_GUI_HEIGHT :: 300
 triangle_active := false
 
 @(private = "file")
-triangle_volume: f32 = 0.3
+triangle_volume: f32 = 0.25
 
 @(private = "file")
 triangle_duty_cycle: f32 = 0.5
@@ -43,7 +43,6 @@ advance_phase :: #force_inline proc() {
 		phase_new -= 1
 	}
 	sync.atomic_store(&triangle_phase, phase_new)
-
 }
 
 @(private = "file")

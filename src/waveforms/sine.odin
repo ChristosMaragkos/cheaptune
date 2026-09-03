@@ -12,7 +12,7 @@ SINE_GUI_HEIGHT :: 210
 sine_active := false
 
 @(private = "file")
-sine_volume: f32 = 0.3
+sine_volume: f32 = 0.35
 
 @(private = "file")
 sine_duty_cycle: f32 = 0.5
@@ -43,7 +43,6 @@ advance_phase :: #force_inline proc() {
 		phase_new -= 1
 	}
 	sync.atomic_store(&sine_phase, phase_new)
-
 }
 
 @(private = "file")

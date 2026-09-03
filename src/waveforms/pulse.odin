@@ -11,7 +11,7 @@ PULSE_GUI_HEIGHT :: 120
 pulse_active := false
 
 @(private = "file")
-pulse_volume: f32 = 0.3
+pulse_volume: f32 = 0.15
 
 @(private = "file")
 pulse_duty_cycle: f32 = 0.5
@@ -42,7 +42,6 @@ advance_phase :: #force_inline proc() {
 		phase_new -= 1
 	}
 	sync.atomic_store(&pulse_phase, phase_new)
-
 }
 
 @(private = "file")
