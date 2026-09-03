@@ -1,14 +1,21 @@
 package waveforms
 
-import "../constants/"
+import "../constants"
 import "../envelopes"
+import tfd "../tinyfiledialogs"
+import "core:fmt"
+import "core:io"
 import "core:math"
+import "core:mem"
+import "core:os"
 import "core:sync"
 import rl "vendor:raylib"
 
 WAVETABLE_GUI_HEIGHT :: 300
-
 WAVE_SAMPLE_COUNT :: 64
+
+@(private = "file")
+file_ext := []cstring{"*.wvt"}
 
 @(private = "file")
 wavetable_active := false
@@ -81,12 +88,19 @@ hex_to_nibble :: proc(ch: u8) -> (u8, bool) {
 	return 0, false
 }
 
-// Pack 64 nibbles (from a 64-char hex string) into the 32-byte data array.
+// Pack 64 nibbles (from the hex string) into the 32-byte data array.
+// Reads only up to the string's NUL terminator; any shorter string zero-fills the rest.
 @(private = "file")
 pack_data :: proc() {
+	len := 0
+	for len < WAVE_SAMPLE_COUNT && hex_buffer[len] != 0 {
+		len += 1
+	}
 	for byte_idx in 0 ..< 32 {
-		lo_nib, ok_lo := hex_to_nibble(hex_buffer[byte_idx * 2 + 1])
-		hi_nib, ok_hi := hex_to_nibble(hex_buffer[byte_idx * 2])
+		lo_idx := byte_idx * 2 + 1
+		hi_idx := byte_idx * 2
+		lo_nib, ok_lo := hex_to_nibble(hex_buffer[lo_idx] if lo_idx < len else '0')
+		hi_nib, ok_hi := hex_to_nibble(hex_buffer[hi_idx] if hi_idx < len else '0')
 		if !ok_lo do lo_nib = 0
 		if !ok_hi do hi_nib = 0
 		data[byte_idx] = (hi_nib << 4) | lo_nib
@@ -174,35 +188,64 @@ wavetable_generate :: proc() -> f32 {
 		nib = b & 0xF
 	}
 
-	value := (f32(nib) / 15.0) * 2.0 - 1.0
+	value := (f32(nib) / 15.0) * 2.0 - 1.0 // Convert from 0..15 -> -1..1
 	return value * amp * get_volume()
 }
 
 wavetable_draw_gui :: proc() {
-	rl.GuiCheckBox(rl.Rectangle{150, 130, 60, 20}, "Wavetable", &wavetable_active)
-	rl.GuiSliderBar(rl.Rectangle{150, 150, 60, 15}, "", "Volume", &wavetable_volume, 0.0, 0.6)
-	rl.GuiSliderBar(rl.Rectangle{150, 165, 60, 15}, "", "Attack", &env.attack_time, 0.0, 0.5)
-	rl.GuiSliderBar(rl.Rectangle{150, 180, 60, 15}, "", "Release", &env.release_time, 0.0, 0.5)
+	rl.GuiCheckBox({150, 130, 60, 20}, "Wavetable", &wavetable_active)
+	rl.GuiSliderBar({150, 150, 60, 15}, "", "Volume", &wavetable_volume, 0.0, 0.6)
+	rl.GuiSliderBar({150, 165, 60, 15}, "", "Attack", &env.attack_time, 0.0, 0.5)
+	rl.GuiSliderBar({150, 180, 60, 15}, "", "Release", &env.release_time, 0.0, 0.5)
 
-	rl.GuiTextBox(
-		rl.Rectangle{150, 200, 268, 20},
-		cstring(&hex_buffer[0]),
-		WAVE_SAMPLE_COUNT,
-		hex_edit_active,
-	)
+	rl.GuiTextBox({150, 200, 268, 20}, cstring(&hex_buffer[0]), WAVE_SAMPLE_COUNT + 1, hex_edit_active)
 	pack_data()
 
-	rl.GuiCheckBox(rl.Rectangle{150, 225, 60, 15}, "Edit Hex", &hex_edit_active)
-	if rl.GuiButton(rl.Rectangle{265, 225, 40, 15}, "Clear") { fill_preset(.Empty) }
+	rl.GuiCheckBox({150, 225, 60, 15}, "Edit Hex", &hex_edit_active)
+	if rl.GuiButton({265, 225, 40, 15}, "Clear") { fill_preset(.Empty) }
 
-	if rl.GuiButton(rl.Rectangle{150, 245, 60, 20}, "Sine") { fill_preset(.Sine) }
-	if rl.GuiButton(rl.Rectangle{214, 245, 60, 20}, "Triangle") { fill_preset(.Triangle) }
-	if rl.GuiButton(rl.Rectangle{278, 245, 60, 20}, "Saw") { fill_preset(.Saw) }
-	if rl.GuiButton(rl.Rectangle{342, 245, 60, 20}, "Square") { fill_preset(.Square) }
+	if rl.GuiButton({150, 245, 60, 20}, "Sine") { fill_preset(.Sine) }
+	if rl.GuiButton({214, 245, 60, 20}, "Triangle") { fill_preset(.Triangle) }
+	if rl.GuiButton({278, 245, 60, 20}, "Saw") { fill_preset(.Saw) }
+	if rl.GuiButton({342, 245, 60, 20}, "Square") { fill_preset(.Square) }
 
-	rl.GuiSlider(rl.Rectangle{150, 270, 60, 15}, "", "Pitch", &wavetable_pitch, 40.0, 4000.0)
+	rl.GuiSlider({150, 270, 60, 15}, "", "Pitch", &wavetable_pitch, 40.0, 4000.0)
 
-	draw_wave_preview(rl.Rectangle{150, 290, 268, 120})
+	if rl.GuiButton({150, 420, 60, 20}, "Save") {
+		save_path := tfd.saveFileDialog(
+			"Save Wavetable Sample",
+			nil,
+			1,
+			raw_data(file_ext),
+			"Wavetable files",
+		)
+
+		err := os.write_entire_file_from_bytes(string(save_path), data[:])
+		if err != os.General_Error.None do fmt.printfln("Error saving wavetable sample to file")
+	}
+
+	if rl.GuiButton({220, 420, 60, 20}, "Load") {
+		load_path := tfd.openFileDialog(
+			"Load Wavetable Sample",
+			nil,
+			1,
+			raw_data(file_ext),
+			"Wavetable files",
+			0,
+		)
+
+		bytes, err := os.read_entire_file_from_path(string(load_path), context.temp_allocator)
+		defer free_all(context.temp_allocator)
+		if err != io.Error.None {
+			fmt.printfln("Error loading wavetable sample from file")
+			return
+		} else {
+			mem.copy(&data[0], &bytes[0], len(data))
+			unpack_data()
+		}
+	}
+
+	draw_wave_preview({150, 290, 268, 120})
 }
 
 @(private = "file")
